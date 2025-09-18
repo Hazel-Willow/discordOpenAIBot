@@ -1,0 +1,39 @@
+# Discord settings:
+
+bot_token: #private key for bot goes here
+client_id: #client id go here
+status_message: ""
+
+max_text: 3000
+max_images: 5
+max_messages: 25
+
+use_plain_responses: true
+allow_dms: true
+
+permissions:
+  users:
+    admin_ids: []
+    allowed_ids: []
+    blocked_ids: []
+  roles:
+    allowed_ids: []
+    blocked_ids: []
+  channels:
+    allowed_ids: []
+    blocked_ids: []
+
+
+# LLM settings:
+
+providers:
+  lmstudio:
+    base_url: http://localhost:1234/v1
+
+
+models:
+  #lmstudio/llama-3.2-3b-instruct:
+  lmstudio/llama-3.1-8b-lexi-uncensored-v2:  
+  
+system_prompt: |
+  This is the personality of the bot. Feel free to put anything here.
