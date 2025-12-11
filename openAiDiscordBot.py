@@ -1,23 +1,24 @@
 import asyncio
-from base64 import b64encode
-from dataclasses import dataclass, field
-from datetime import datetime
+import os
 import logging
-from typing import Any, Literal, Optional
 import discord
-from discord.app_commands import Choice
-from discord.ext import commands
 import httpx
-from openai import AsyncOpenAI
 import yaml
 import time
 import re
 import json
+from base64 import b64encode
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Any, Literal, Optional
+from discord.app_commands import Choice
+from discord.ext import commands
+from openai import AsyncOpenAI
 from urllib.parse import urlparse
-import webbrowser
-import os
 from openai import OpenAI
 
+
+## Declaration of Variables
 ALLOWED_SPECIALS = '<>@!,.;-:"()*^/#_{}[]\\&%$|'
 
 _SANITIZE_RE = re.compile(rf'[^A-Za-z0-9\s{re.escape(ALLOWED_SPECIALS)}]')
@@ -25,46 +26,39 @@ _SANITIZE_RE = re.compile(rf'[^A-Za-z0-9\s{re.escape(ALLOWED_SPECIALS)}]')
 VISION_MODEL_TAGS = ("claude", "gemini", "gemma", "gpt-4", "gpt-5", "grok-4", "llama", "llava", "mistral", "mistralai", "magistral-small-2509", "qwen_qwen3-vl-30b-a3b-thinking", "o3", "o4", "vision", "vl")
 PROVIDERS_SUPPORTING_USERNAMES = ("openai", "x-ai", "llama-3.2-3b-instruct")
 
-EMBED_COLOR_COMPLETE = discord.Color.dark_green()
-EMBED_COLOR_INCOMPLETE = discord.Color.orange()
-
-STREAMING_INDICATOR = " ⚪"
-EDIT_DELAY_SECONDS = 1
-
 MAX_MESSAGE_NODES = 500
 
-def sanitize_text(s: str | None) -> str:
-    if not s:
-        return ""
-    return _SANITIZE_RE.sub("", s)
-
+## Logging formatting
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s %(levelname)s: %(message)s",
+    format="%(asctime)s: %(message)s",
 )
 
+def sanitize_text(sanitary: str | None) -> str:
+    if not sanitary:
+        return ""
+    return _SANITIZE_RE.sub("", sanitary)
 
+## Get config and verify syntax
 def get_config(filename: str = "config.yaml") -> dict[str, Any]:
     with open(filename, encoding="utf-8") as file:
         return yaml.safe_load(file)
-
-
+    
 config = get_config()
 curr_model = next(iter(config["models"]))
+bot_nickname = config["nickname"]
 
-msg_nodes = {}
-last_task_time = 0
-last_bot_msg_by_channel: dict[int, tuple[int, float]] = {}
-
+## Declaration of Discord intents
 intents = discord.Intents.default()
 intents.message_content = True
 intents.messages = True 
 activity = discord.CustomActivity(name=(config["status_message"] or "github.com/jakobdylanc/llmcord")[:128])
 discord_bot = commands.Bot(intents=intents, activity=activity, command_prefix=None)
 
+## This allows the bot to pull images
 httpx_client = httpx.AsyncClient()
 
-
+## This is the metadata that the MsgNode tracks for a message
 @dataclass
 class MsgNode:
     text: Optional[str] = None
@@ -80,12 +74,16 @@ class MsgNode:
 
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
-    ## Anchor works by defining the most chronologically recent message as the message to reply to 
+## Declairing variables used by msg_nodes
+msg_nodes = {}
+last_task_time = 0
+last_bot_msg_by_channel: dict[int, tuple[int, float]] = {}
+
 def _update_bot_anchor(msg: discord.Message) -> None:
     ts = discord.utils.utcnow().timestamp()
     last_bot_msg_by_channel[msg.channel.id] = (msg.id, ts)
 
-
+## Slash command for changing which model is actively being used
 @discord_bot.tree.command(name="model", description="View or switch the current model")
 async def model_command(interaction: discord.Interaction, model: str) -> None:
     global curr_model
@@ -99,36 +97,36 @@ async def model_command(interaction: discord.Interaction, model: str) -> None:
             logging.info(output)
         else:
             output = "You don't have permission to change the model."
-
     await interaction.response.send_message(output, ephemeral=(interaction.channel.type == discord.ChannelType.private))
 
-
-## When bot comes up, it displays an invite link with requested join permissions 
+## When bot comes up, it displays an invite link with requested join permissions
+## Permissions are set for messaging, attaching files, reacting to messages, and VC use
+## VC, reacts, and uploading files are planned features, but not currently in use 
 @discord_bot.event
 async def on_ready() -> None:
     if client_id := config["client_id"]:
-        logging.info(f"\n\nBOT INVITE URL:\nhttps://discord.com/oauth2/authorize?client_id={client_id}&permissions=412317191168&scope=bot\n")
+        logging.info(f"\n\nBOT INVITE URL:\nhttps://discord.com/oauth2/authorize?client_id={client_id}&permissions=414501411904&scope=bot\n")
 
     await discord_bot.tree.sync()
-
 
 @discord_bot.event
 async def on_message(new_msg: discord.Message) -> None:
     global last_task_time
-    puppybotName = "Luna"
+
     is_dm = new_msg.channel.type == discord.ChannelType.private
 
-    ## Bot replies to humans instantly, and waits 10 seconds before replying to bots
-    #if (not is_dm and discord_bot.user not in new_msg.mentions):
-    #   return
+    ## Bot replies to mentions instantly, waits 10 seconds before replying to bots, and
+    ## waits 5 seconds before replying to bot_nickname
     if new_msg.author.bot:
         await asyncio.sleep(10)
-    if (not is_dm and puppybotName in new_msg.content):
-        await asyncio.sleep(10)
-    if (not is_dm and discord_bot.user not in new_msg.mentions and puppybotName not in new_msg.content):
+        logging.info(f"OwO BOTS!: \n{new_msg.content}")
+    if (not is_dm and bot_nickname in new_msg.content):
+        await asyncio.sleep(5)
+        logging.info(f"OwO!! Is this for me: \n{new_msg.content}")
+    if (not is_dm and discord_bot.user not in new_msg.mentions and bot_nickname not in new_msg.content):
         return
-
-    ## This is the permissions logic. It's for allowing/blocking users and channels
+    
+    
     role_ids = set(role.id for role in getattr(new_msg.author, "roles", ()))
     channel_ids = set(filter(None, (new_msg.channel.id, getattr(new_msg.channel, "parent_id", None), getattr(new_msg.channel, "category_id", None))))
 
@@ -144,6 +142,7 @@ async def on_message(new_msg: discord.Message) -> None:
         (perm["allowed_ids"], perm["blocked_ids"]) for perm in (permissions["users"], permissions["roles"], permissions["channels"])
     )
 
+    ## This is the permissions logic. It's for allowing/blocking users and channels
     allow_all_users = not allowed_user_ids if is_dm else not allowed_user_ids and not allowed_role_ids
     is_good_user = user_is_admin or allow_all_users or new_msg.author.id in allowed_user_ids or any(id in allowed_role_ids for id in role_ids)
     is_bad_user = not is_good_user or new_msg.author.id in blocked_user_ids or any(id in blocked_role_ids for id in role_ids)
@@ -154,8 +153,8 @@ async def on_message(new_msg: discord.Message) -> None:
 
     if is_bad_user or is_bad_channel:
         return
-
-    ##LLM provider logic
+    
+    ##LLM definitions/options
     provider_slash_model = curr_model
     provider, model = provider_slash_model.removesuffix(":vision").split("/", 1)
 
@@ -178,11 +177,11 @@ async def on_message(new_msg: discord.Message) -> None:
     max_images = config.get("max_images", 5) if accept_images else 0
     max_messages = config.get("max_messages", 25)
 
-    # Build message chain and set user warnings
+    ## Build message chain and set user warnings
     messages = []
-    user_warnings = set()
     curr_msg = new_msg
 
+    ## Message handling
     while curr_msg != None and len(messages) < max_messages:
         curr_node = msg_nodes.setdefault(curr_msg.id, MsgNode())
 
@@ -224,12 +223,17 @@ async def on_message(new_msg: discord.Message) -> None:
                     if att.content_type.startswith("image")
                 ]
 
+                ##-------++++++++-------++++++++-------++++++++-------++++++++-------##
+                ##                    RESUME REWRITING CODE HERE                     ##
+                ##-------++++++++-------++++++++-------++++++++-------++++++++-------##
+
                 curr_node.role = "assistant" if curr_msg.author == discord_bot.user else "user"
                 curr_node.user_id = curr_msg.author.id if curr_node.role == "user" else None
                 curr_node.has_bad_attachments = len(curr_msg.attachments) > len(good_attachments)
 
                 try:
-                    # parent resolution (with anchor/hotness)p
+                    ## Checks if message is a reply. If the message replied to is deleted, or there is no message 
+                    ## being replied to, the logic continues to the next block after setting the current message as the parent
                     ref = curr_msg.reference
                     if ref and getattr(ref, "message_id", None):
                         parent = getattr(ref, "cached_message", None)
@@ -238,40 +242,34 @@ async def on_message(new_msg: discord.Message) -> None:
                         curr_node.parent_msg = parent
 
                     else:
+                        ## Fetches current message channel
                         ch = curr_msg.channel
+
+                        ## Defines group chats and DMS as "is_dm_like"
                         is_dm_like = ch.type in (
                             discord.ChannelType.private,
                             discord.ChannelType.group
                         )
+
+                        ## Defines public and private thread variables and sets the channel type as is_public_thread or is_private_thread if true
                         is_public_thread = ch.type == discord.ChannelType.public_thread
                         is_private_thread = ch.type == discord.ChannelType.private_thread
 
-
-                        ## -----++++++++-------++++++++CURRENTLY EDITING-----++++++++-------++++++++------- 
+                        ## Checks if bot was mentioned instead
                         bot_mentioned = discord_bot.user in getattr(curr_msg, "mentions", [])
                         
+                        ## Checks to see if the message is in a thread, retrieves entire thread, catches exception if unable to retrieve thread
                         starter_msg = None
                         if is_public_thread or is_private_thread:
                             starter_msg = ch.starter_message
                             if starter_msg is None and ch.parent and ch.parent.type == discord.ChannelType.text:
                                 try:
-                                    starter_msg = await ch.parent.fetch_message(ch.id)  # thread id == starter msg id
+                                    starter_msg = await ch.parent.fetch_message(ch.id)
                                 except (discord.NotFound, discord.HTTPException):
                                     starter_msg = None
 
-                        HOT_WINDOW_SECONDS = 120
-                        HOT_AUTHOR_THRESHOLD = 3
-                        since_ts = discord.utils.utcnow().timestamp() - HOT_WINDOW_SECONDS
-
-                        recent = []
-                        async for m in ch.history(limit=10, before=curr_msg):
-                            if m.created_at.timestamp() < since_ts:
-                                break
-                            recent.append(m)
-
-                        distinct_authors = {m.author.id for m in recent[:10]}
-                        is_hot = len(distinct_authors) >= HOT_AUTHOR_THRESHOLD
-
+                        ## Currently magic
+                        ## Define me plz
                         session_parent = None
                         session_info = last_bot_msg_by_channel.get(ch.id)
                         if session_info:
@@ -282,13 +280,15 @@ async def on_message(new_msg: discord.Message) -> None:
                                 except (discord.NotFound, discord.HTTPException):
                                     session_parent = None
 
+                        ## If DMs or group chat, previous message is defined as chat history
                         if is_dm_like:
-                            prev_msg = ([m async for m in ch.history(before=curr_msg, limit=1)] or [None])[0]
+                            prev_msg = ([m async for m in ch.history(before=curr_msg, limit=10)] or [None])[0]
                             if prev_msg and prev_msg.type in (discord.MessageType.default, discord.MessageType.reply):
                                 curr_node.parent_msg = prev_msg
                             else:
                                 curr_node.parent_msg = None
 
+                        ## If threads, pulls history of the thread
                         elif is_public_thread or is_private_thread:
                             if bot_mentioned:
                                 curr_node.parent_msg = session_parent or starter_msg
@@ -296,23 +296,33 @@ async def on_message(new_msg: discord.Message) -> None:
                                 if starter_msg and starter_msg.author == discord_bot.user:
                                     curr_node.parent_msg = session_parent or starter_msg
                                 else:
-                                    curr_node.parent_msg = None if is_hot else session_parent
+                                    curr_node.parent_msg = session_parent
 
+                        ## If bot mentioned, pulls reply chain
+                        ## If bot nickname used, pulls chat log up to message history limit
                         else:
                             if bot_mentioned:
                                 curr_node.parent_msg = session_parent
                             else:
-                                curr_node.parent_msg = session_parent if (session_parent and not is_hot) else None
-                    # ---------------------------------------------------------------------------------------------------
+                                prev_msg = ([m async for m in ch.history(before=curr_msg, limit=10)] or [None])[0]
+                                if prev_msg and prev_msg.type in (discord.MessageType.default, discord.MessageType.reply):
+                                    curr_node.parent_msg = prev_msg
+                                else:
+                                    curr_node.parent_msg = None
+                
+                ## Throws exception if no message is able to be pulled, and outputs to the terminal
                 except (discord.NotFound, discord.HTTPException):
                     logging.exception("Error fetching next message in the chain")
                     curr_node.fetch_parent_failed = True
 
+            ## Checks if reply chain contains the maximum images or text
             if curr_node.images[:max_images]:
                 content = ([dict(type="text", text=curr_node.text[:max_text])] if curr_node.text[:max_text] else []) + curr_node.images[:max_images]
             else:
                 content = curr_node.text[:max_text]
 
+            ## Checks if the message is empty
+            ## Adds the username of the message if the author isn't defined, then adds it to the beginning of the message if it is
             if content != "":
                 message = dict(content=content, role=curr_node.role)
                 if accept_usernames and curr_node.user_id != None:
@@ -320,42 +330,28 @@ async def on_message(new_msg: discord.Message) -> None:
 
                 messages.append(message)
 
-            if len(curr_node.text) > max_text:
-                user_warnings.add(f"⚠️ Max {max_text:,} characters per message")
-            if len(curr_node.images) > max_images:
-                user_warnings.add(f"⚠️ Max {max_images} image{'' if max_images == 1 else 's'} per message" if max_images > 0 else "⚠️ Can't see images")
-            if curr_node.has_bad_attachments:
-                user_warnings.add("⚠️ Unsupported attachments")
-            if curr_node.fetch_parent_failed or (curr_node.parent_msg != None and len(messages) == max_messages):
-                user_warnings.add(f"⚠️ Only using last {len(messages)} message{'' if len(messages) == 1 else 's'}")
-
             curr_msg = curr_node.parent_msg
 
     logging.info(f"Message received (user ID: {new_msg.author.id}, attachments: {len(new_msg.attachments)}, conversation length: {len(messages)}):\n{new_msg.content}")
 
+    ## Adds system prompt if present, adds system prompt if present and informs system of Discord IDs
     if system_prompt := config["system_prompt"]:
         now = datetime.now().astimezone()
 
         system_prompt = system_prompt.replace("{date}", now.strftime("%B %d %Y")).replace("{time}", now.strftime("%H:%M:%S %Z%z")).strip()
-        #if accept_usernames:
         system_prompt += "\nUser's names are their Discord IDs and should be typed as '<@ID>'."
-
         messages.append(dict(role="system", content=system_prompt))
 
-    # Generate and send response message(s) (can be multiple if response is long)
+    ## Generate and send response message
     curr_content = finish_reason = None
     response_msgs = []
     response_contents = []
+    max_message_length = 2000
 
-    embed = discord.Embed()
-    for warning in sorted(user_warnings):
-        embed.add_field(name=warning, value="", inline=False)
-
-    use_plain_responses = config.get("use_plain_responses", False)
-    max_message_length = 2000 if use_plain_responses else (4096 - len(STREAMING_INDICATOR))
-
+    ## Collect chunks from LLM, combine them, and send them
     kwargs = dict(model=model, messages=messages[::-1], stream=True, extra_headers=extra_headers, extra_query=extra_query, extra_body=extra_body)
     try:
+        ## Show bot is typing while response is being generated
         async with new_msg.channel.typing():
             async for chunk in await openai_client.chat.completions.create(**kwargs):
                 if finish_reason != None:
@@ -379,43 +375,16 @@ async def on_message(new_msg: discord.Message) -> None:
 
                 response_contents[-1] += new_content
 
-                if not use_plain_responses:
-                    time_delta = datetime.now().timestamp() - last_task_time
+            for content in response_contents:
+                ## Replies to message 
+                reply_to_msg = new_msg if response_msgs == [] else response_msgs[-1]
+                response_msg = await reply_to_msg.reply(content=content, suppress_embeds=True)
+                response_msgs.append(response_msg)
 
-                    ready_to_edit = time_delta >= EDIT_DELAY_SECONDS
-                    msg_split_incoming = finish_reason == None and len(response_contents[-1] + curr_content) > max_message_length
-                    is_final_edit = finish_reason != None or msg_split_incoming
-                    is_good_finish = finish_reason != None and finish_reason.lower() in ("stop", "end_turn")
+                _update_bot_anchor(response_msg)
 
-                    if start_next_msg or ready_to_edit or is_final_edit:
-                        embed.description = response_contents[-1] if is_final_edit else (response_contents[-1] + STREAMING_INDICATOR)
-                        embed.color = EMBED_COLOR_COMPLETE if msg_split_incoming or is_good_finish else EMBED_COLOR_INCOMPLETE
-
-                        if start_next_msg:
-                            reply_to_msg = new_msg if response_msgs == [] else response_msgs[-1]
-                            response_msg = await reply_to_msg.reply(embed=embed, silent=True)
-                            response_msgs.append(response_msg)
-
-                            _update_bot_anchor(response_msg)  # keep session anchor fresh
-
-                            msg_nodes[response_msg.id] = MsgNode(parent_msg=new_msg)
-                            await msg_nodes[response_msg.id].lock.acquire()
-                        else:
-                            await asyncio.sleep(EDIT_DELAY_SECONDS - time_delta)
-                            await response_msg.edit(embed=embed)
-
-                        last_task_time = datetime.now().timestamp()
-
-            if use_plain_responses:
-                for content in response_contents:
-                    reply_to_msg = new_msg if response_msgs == [] else response_msgs[-1]
-                    response_msg = await reply_to_msg.reply(content=content, suppress_embeds=True)
-                    response_msgs.append(response_msg)
-
-                    _update_bot_anchor(response_msg)  # keep session anchor fresh
-
-                    msg_nodes[response_msg.id] = MsgNode(parent_msg=new_msg)
-                    await msg_nodes[response_msg.id].lock.acquire()
+                msg_nodes[response_msg.id] = MsgNode(parent_msg=new_msg)
+                await msg_nodes[response_msg.id].lock.acquire()
 
     except Exception:
         logging.exception("Error while generating response")
@@ -439,3 +408,4 @@ try:
     asyncio.run(main())
 except KeyboardInterrupt:
     pass
+
