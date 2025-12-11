@@ -115,14 +115,18 @@ async def on_ready() -> None:
 @discord_bot.event
 async def on_message(new_msg: discord.Message) -> None:
     global last_task_time
-
+    puppybotName = "Luna"
     is_dm = new_msg.channel.type == discord.ChannelType.private
 
     ## Bot replies to humans instantly, and waits 10 seconds before replying to bots
-    if (not is_dm and discord_bot.user not in new_msg.mentions):
-        return
+    #if (not is_dm and discord_bot.user not in new_msg.mentions):
+    #   return
     if new_msg.author.bot:
         await asyncio.sleep(10)
+    if (not is_dm and puppybotName in new_msg.content):
+        await asyncio.sleep(10)
+    if (not is_dm and discord_bot.user not in new_msg.mentions and puppybotName not in new_msg.content):
+        return
 
     ## This is the permissions logic. It's for allowing/blocking users and channels
     role_ids = set(role.id for role in getattr(new_msg.author, "roles", ()))
@@ -245,7 +249,7 @@ async def on_message(new_msg: discord.Message) -> None:
 
                         ## -----++++++++-------++++++++CURRENTLY EDITING-----++++++++-------++++++++------- 
                         bot_mentioned = discord_bot.user in getattr(curr_msg, "mentions", [])
-
+                        
                         starter_msg = None
                         if is_public_thread or is_private_thread:
                             starter_msg = ch.starter_message
