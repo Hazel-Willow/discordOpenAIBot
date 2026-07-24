@@ -223,9 +223,6 @@ async def on_message(new_msg: discord.Message) -> None:
                     if att.content_type.startswith("image")
                 ]
 
-                ##-------++++++++-------++++++++-------++++++++-------++++++++-------##
-                ##                    RESUME REWRITING CODE HERE                     ##
-                ##-------++++++++-------++++++++-------++++++++-------++++++++-------##
 
                 curr_node.role = "assistant" if curr_msg.author == discord_bot.user else "user"
                 curr_node.user_id = curr_msg.author.id if curr_node.role == "user" else None
@@ -234,11 +231,11 @@ async def on_message(new_msg: discord.Message) -> None:
                 try:
                     ## Checks if message is a reply. If the message replied to is deleted, or there is no message 
                     ## being replied to, the logic continues to the next block after setting the current message as the parent
-                    ref = curr_msg.reference
-                    if ref and getattr(ref, "message_id", None):
-                        parent = getattr(ref, "cached_message", None)
+                    referenced = curr_msg.reference
+                    if referenced and getattr(referenced, "message_id", None):
+                        parent = getattr(referenced, "cached_message", None)
                         if parent is None:
-                            parent = await curr_msg.channel.fetch_message(ref.message_id)
+                            parent = await curr_msg.channel.fetch_message(referenced.message_id)
                         curr_node.parent_msg = parent
 
                     else:
@@ -268,8 +265,8 @@ async def on_message(new_msg: discord.Message) -> None:
                                 except (discord.NotFound, discord.HTTPException):
                                     starter_msg = None
 
-                        ## Currently magic
-                        ## Define me plz
+                        ## Pulls the last message the bot sends for context, returns session_parent none if the message is more than
+                        ## 300 seconds old
                         session_parent = None
                         session_info = last_bot_msg_by_channel.get(ch.id)
                         if session_info:
@@ -280,7 +277,7 @@ async def on_message(new_msg: discord.Message) -> None:
                                 except (discord.NotFound, discord.HTTPException):
                                     session_parent = None
 
-                        ## If DMs or group chat, previous message is defined as chat history
+                        ## If DMs or GC, previous message is defined as chat history
                         if is_dm_like:
                             prev_msg = ([m async for m in ch.history(before=curr_msg, limit=10)] or [None])[0]
                             if prev_msg and prev_msg.type in (discord.MessageType.default, discord.MessageType.reply):
@@ -302,7 +299,7 @@ async def on_message(new_msg: discord.Message) -> None:
                         ## If bot nickname used, pulls chat log up to message history limit
                         else:
                             if bot_mentioned:
-                                curr_node.parent_msg = session_parent
+                                curr_node.parent_msg = ([m async for m in ch.history(before=curr_msg, limit=10)] or [None])
                             else:
                                 prev_msg = ([m async for m in ch.history(before=curr_msg, limit=10)] or [None])[0]
                                 if prev_msg and prev_msg.type in (discord.MessageType.default, discord.MessageType.reply):
