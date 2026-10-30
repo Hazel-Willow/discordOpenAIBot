@@ -1,5 +1,5 @@
 # discordOpenAIBot
-An LLM bot for discord with support for LMStudio and Ollama for the backend
+An LLM bot for discord with support for LMStudio and Ollama for the backend. Built on llmcord by jakobdylanc, extended by Hazel-Willow
 Uses standard OpenAI API calls with /v1 formatting
 
 Will work on Ubuntu or Windows; however, the instructions are written for Ubuntu for now
